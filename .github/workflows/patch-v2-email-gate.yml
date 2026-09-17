@@ -1,0 +1,39 @@
+name: Patch V2 email gate
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-v2-email-gate.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add email gate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('v2/index.html')
+          s = p.read_text()
+          s = s.replace('.duration.on{border-color:var(--jade);background:var(--soft)}.resultHead', '.duration.on{border-color:var(--jade);background:var(--soft)}.emailGate{justify-content:center}.emailBox{max-width:560px;width:100%;margin:auto;border:1px solid var(--line);background:#fff;border-radius:24px;padding:24px}.emailBox h2{margin-bottom:8px}.emailBox p{color:var(--muted);line-height:1.5}.emailInput{width:100%;border:1.5px solid var(--line);border-radius:14px;padding:14px 15px;font-size:1rem;margin:8px 0 12px}.emailInput:focus{outline:none;border-color:var(--jade);box-shadow:0 0 0 3px rgba(96,123,107,.12)}.consentRow{display:flex;align-items:flex-start;gap:10px;font-size:.82rem;color:#626b64;line-height:1.4;margin:5px 0 14px}.consentRow input{margin-top:3px}.emailActions{display:flex;gap:10px;align-items:center}.emailError{min-height:1.2em;color:#a25747;font-size:.78rem;margin-top:8px}.resultHead', 1)
+          marker = '<div id="results" class="screen">'
+          gate = '<div id="emailGate" class="screen emailGate"><div class="emailBox"><div class="stage">Votre bilan est prêt</div><h2>Indiquez votre adresse e-mail</h2><p>Elle sera enregistrée par le cabinet pour ce pré-bilan. Vos réponses et hypothèses MTC ne sont pas enregistrées.</p><input id="contactEmail" class="emailInput" type="email" inputmode="email" autocomplete="email" placeholder="votre@email.fr"><input id="contactWebsite" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px"><label class="consentRow"><input id="contactConsent" type="checkbox"><span>J’accepte que mon adresse e-mail soit enregistrée par le cabinet dans le cadre de ce pré-bilan. Aucun abonnement automatique à une newsletter.</span></label><div class="emailActions"><button id="emailBack" class="back">← Retour</button><button id="showResult" class="next">Afficher mon bilan</button></div><div id="emailError" class="emailError"></div></div></div>'
+          if marker not in s: raise SystemExit('results marker missing')
+          s = s.replace(marker, gate + marker, 1)
+          s = s.replace("['intro','quiz','results']", "['intro','quiz','emailGate','results']", 1)
+          s = s.replace("$('next').textContent='Voir mon pré-bilan'", "$('next').textContent='Continuer'", 1)
+          fn = "const CONTACT_ENDPOINT='https://hrmeduxnxsxklklmtmgo.supabase.co/functions/v1/operation-com-prevention-contact';function showEmailGate(){phase='email';show('emailGate');$('emailError').textContent='';setTimeout(()=>$('contactEmail').focus(),80)}async function submitEmail(){const email=$('contactEmail').value.trim(),consent=$('contactConsent').checked,website=$('contactWebsite').value,btn=$('showResult');$('emailError').textContent='';if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)){$('emailError').textContent='Indiquez une adresse e-mail valide.';return}if(!consent){$('emailError').textContent='Merci de confirmer l’enregistrement de votre adresse e-mail.';return}btn.disabled=true;btn.textContent='Enregistrement…';try{const r=await fetch(CONTACT_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,consent:true,website})});if(!r.ok)throw new Error('save');result()}catch(e){$('emailError').textContent='Impossible d’enregistrer votre adresse pour le moment. Réessayez dans quelques instants.'}finally{btn.disabled=false;btn.textContent='Afficher mon bilan'}}"
+          s = s.replace('function allQs(){', fn + 'function allQs(){', 1)
+          s = s.replace("if(phase==='history'){result();return}", "if(phase==='history'){showEmailGate();return}", 1)
+          s = s.replace(";$('sendPro').onclick=()=>", ";$('showResult').onclick=submitEmail;$('contactEmail').addEventListener('keydown',e=>{if(e.key==='Enter')submitEmail()});$('emailBack').onclick=()=>{show('quiz');renderHistory()};$('sendPro').onclick=()=>", 1)
+          p.write_text(s)
+          PY
+      - name: Commit change
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v2/index.html
+          git diff --cached --quiet || git commit -m 'Ajoute collecte email avant le bilan V2'
+          git push
