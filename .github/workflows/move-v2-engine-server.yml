@@ -23,6 +23,7 @@ jobs:
           # Retire les pondérations du code public des questions.
           s = re.sub(r",w:\{[^{}]*\}", "", s)
 
+          # Remplace le moteur adaptatif local par un appel serveur.
           start = s.find('function norm(v){')
           end = s.find('function current(){', start)
           if start < 0 or end < 0:
@@ -31,6 +32,14 @@ jobs:
           server_logic = """const ENGINE_ENDPOINT='https://hrmeduxnxsxklklmtmgo.supabase.co/functions/v1/operation-com-prevention-engine';let serverResult=null;async function buildAdaptive(){const btn=$('next');btn.disabled=true;btn.textContent='Analyse…';try{const r=await fetch(ENGINE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'adaptive',answers})});if(!r.ok)throw new Error('engine');const data=await r.json();const lookup=Object.fromEntries([...CORE,...Object.values(FOLLOW).flat()].map(q=>[q.id,q]));queue=(data.questionIds||[]).map(id=>lookup[id]).filter(Boolean);if(!queue.length){renderHistory();return}idx=0;phase='adaptive';adaptiveBuilt=true;render()}catch(e){$('qsub').textContent='Le calcul est momentanément indisponible. Réessayez dans quelques instants.';btn.disabled=false;btn.textContent='Réessayer'}}"""
           s = s[:start] + server_logic + s[end:]
 
+          # Retire les helpers de calcul restés plus loin dans le fichier.
+          hstart = s.find('function allQs(){')
+          rstart = s.find('function result(){', hstart)
+          if hstart < 0 or rstart < 0:
+              raise SystemExit('Local result helpers not found')
+          s = s[:hstart] + s[rstart:]
+
+          # Remplace le rendu du résultat par la réponse Supabase.
           rstart = s.find('function result(){')
           rend = s.find('function proSummary(){', rstart)
           if rstart < 0 or rend < 0:
@@ -43,13 +52,12 @@ jobs:
           pend = s.find("$('start').onclick", pstart)
           if pstart < 0 or pend < 0:
               raise SystemExit('Summary block not found')
-          summary_logic = "function proSummary(){return serverResult?.proSummary||'Résultat indisponible.'}"
-          s = s[:pstart] + summary_logic + s[pend:]
+          s = s[:pstart] + "function proSummary(){return serverResult?.proSummary||'Résultat indisponible.'}" + s[pend:]
 
           s = s.replace("if(!r.ok)throw new Error('save');result()", "if(!r.ok)throw new Error('save');await result()", 1)
 
           # Vérifications : aucun poids ni ancien moteur local ne doit rester.
-          forbidden = ['w:{qi:', 'w:{yang:', 'function rawScores', 'function finalScores', 'function mtc(', 'function patientAxes(']
+          forbidden = ['w:{qi:', 'w:{yang:', 'function rawScores', 'function finalScores', 'function mtc(', 'function patientAxes(', 'function evidence(', 'function norm(']
           for token in forbidden:
               if token in s:
                   raise SystemExit('Public scoring logic still present: '+token)
